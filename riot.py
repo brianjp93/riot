@@ -13,7 +13,7 @@ import os.path
 import pprint
 
 
-class Riot:
+class Riot(object):
     def __init__(self):
         self.key = None
         self.creds = None
@@ -21,6 +21,7 @@ class Riot:
         self.champName = {}
         self.champId = {}
         self.fillChampDicts()
+        self.spells = self.getSpellList()
 
     def fillChampDicts(self):
         """
@@ -194,16 +195,15 @@ class Riot:
         if self.key is None:
             self.getKey()
         html = self.base + version + "/matchlist/by-summoner/" + summonerid
-        payload = {
-            "api_key": self.key,
-            "rankedQueues": rankedqueues
-            }
-        if beginIndex is not None: payload["beginIndex"] = beginIndex
-        if endIndex is not None: payload["endIndex"] = endIndex
-        if championids is not None: payload["championIds"] = championids
-        if seasons is not None: payload["seasons"] = seasons
-        if begintime is not None: payload["beginTime"] = begintime
-        if endtime is not None: payload["endTime"] = endtime
+        payload = []
+        if beginIndex is not None: payload.append(("beginIndex", beginIndex))
+        if endIndex is not None: payload.append(("endIndex", endIndex))
+        if championids is not None: payload.append(("championIds", championids))
+        if seasons is not None: payload.append(("seasons", seasons))
+        if begintime is not None: payload.append(("beginTime", begintime))
+        if endtime is not None: payload.append(("endTime", endtime))
+        payload.append(("rankedQueues", rankedqueues))
+        payload.append(("api_key", self.key))
         r = requests.get(html, params=payload)
         time.sleep(1)
         received = False
@@ -215,9 +215,11 @@ class Riot:
                         x["matches"]
                     received = True
                     return r
-                except:
+                except Exception as e:
                     print("Retrying with error code %s" % r.status_code)
-                    r = requests.get(html)
+                    print(r.url)
+                    print(r.text)
+                    r = requests.get(html, params=payload)
                     time.sleep(1)
             return r
         else:
@@ -440,8 +442,14 @@ class Riot:
     def getMatch(self, matchid, version="v2.2"):
         html = "{}{}/match/{}".format(self.base, version, matchid)
         params = {"api_key": self.key}
-        r = requests.get(html, params=params)
-        time.sleep(1)
+        received = False
+        while not received:
+            try:
+                r = requests.get(html, params=params)
+                time.sleep(1)
+                received = True
+            except:
+                print("Retrying match {}.  Error code {}.".format(matchid, r.status_code))
         return r
 
     def getSummonerId(self, name, version="v1.4"):
@@ -457,8 +465,8 @@ class Riot:
         name = "".join(name.split())
         while not received:
             try:
-                r = requests.get(html)
                 time.sleep(1)
+                r = requests.get(html)
                 r.json()[name]["id"]
                 received = True
             except:
@@ -467,19 +475,66 @@ class Riot:
         identity = r.json()[name]["id"]
         return str(identity)
 
+    def getSummonerTiers(self, ids, version="v2.5"):
+        """
+        ids - list of summoner ids
+        """
+        if self.key is None:
+            self.getKey()
+        idlist = ",".join(ids)
+        received = False
+        while not received:
+            try:
+                html = self.base + version + "/league/by-summoner/" + idlist + "/entry" + "?api_key=" + self.key
+                time.sleep(1)
+                r = requests.get(html)
+                data = r.json()
+                # print(data)
+                tiers = {}
+                for sumid in ids:
+                    if sumid in data:
+                        tiers[sumid] = str(data[sumid][0]["tier"])
+                received = True
+            except:
+                print("Retrying with error code {}".format(r.status_code))
+        return tiers
+
+    def getSpellList(self, version="v1.2"):
+        if self.key is None:
+            self.getKey()
+        received = False
+        while not received:
+            try:
+                html = "https://na.api.pvp.net/api/lol/static-data/na/{}/summoner-spell?api_key={}".format(version, self.key)
+                time.sleep(1)
+                r = requests.get(html)
+                received = True
+            except:
+                print("Retrying with error code {}.".format(r.status_code))
+        data = r.json()["data"]
+        spells = {data[x]["id"]: str(x) for x in data}
+        self.spells = spells
+        return spells
+
 
 def testGetChampName():
     riot = Riot()
     r_json = riot.getChampionJson()
-    with open("champidjson.txt", "wb") as f:
+    with open("champnames.txt", "wb") as f:
         f.write(riot.prettyJson(r_json))
+
+
+def testGetChampId():
+    riot = Riot()
+    with open("champids.txt", "w") as f:
+        f.write(pprint.pformat(riot.champId))
 
 
 def testMatchHistory(summonerid):
     riot = Riot()
-    mh = riot.getMatchHistory(summonerid)
+    mh = riot.getMatchHistory(summonerid, seasons="SEASON2016").json()
     with open("matchhistory.txt", "wb") as f:
-        f.write(riot.prettyJson(mh))
+        f.write(pprint.pformat(mh))
 
 
 def main():
@@ -532,11 +587,13 @@ def testGetFeaturedStats():
     riot = Riot()
     riot.getFeaturedGameStats()
 
+
 def testGetMatch(matchid):
     riot = Riot()
     r = riot.getMatch(matchid)
     with open("match.txt", "wb") as f:
         f.write(pprint.pformat(r.json()))
+
 
 def testGetSummonerHistory(summoner_name):
     riot = Riot()
@@ -544,16 +601,32 @@ def testGetSummonerHistory(summoner_name):
     info = riot.getSummonerHistory(identity, seasons="PRESEASON2016", beginIndex=0, endIndex=10)
     print(info)
 
+
+def testGetSummonerTiers(sumids):
+    riot = Riot()
+    tier = riot.getSummonerTiers(sumids)
+    print(tier)
+
+
+def testGetSpellList():
+    riot = Riot()
+    spells = riot.getSpellList()
+    with open("spells.txt", "w") as f:
+        f.write(pprint.pformat(spells))
+
 if __name__ == '__main__':
     # main()
     # test()
-    # testMatchHistory("45294480")
+    testMatchHistory("45294480")
     # testGetChampName()
     # test2()
     # testGetSummonerId()
     # testGetFullMatchHistory()
-    testGetRankedData("kiiroi flash")
+    # testGetRankedData("kiiroi flash")
     # testGetSummoners()
     # testGetFeaturedStats()
-    # testGetMatch("2043270746")
+    # testGetMatch("2077770691")
     # testGetSummonerHistory("brianjp93")
+    # testGetSummonerTiers(["45294480"])
+    # testGetSpellList()
+    # testGetChampId()
