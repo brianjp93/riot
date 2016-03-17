@@ -21,7 +21,15 @@ def getPatchTime(day, month, year):
 class Elo(Riot):
 
     divisions = ["bronze", "silver", "gold", "platinum", "diamond", "master", "challenger", "all"]
-    patches = {"6.2": getPatchTime(1, 2, 2016)}
+    patches = {
+        "6.2": getPatchTime(1, 2, 2016),
+        "6.3": getPatchTime(11, 2, 2016),
+        "6.4": getPatchTime(25, 2, 2016)
+        }
+    patchend = {
+    "6.2": patches["6.3"],
+    "6.3": patches["6.4"]
+    }
 
     def __init__(self, seedplayer, datafolder, elo="all", season=None, maxdivsize=20, patch=None, endtime=None):
         """
@@ -36,7 +44,7 @@ class Elo(Riot):
         if elo not in self.divisions:
             raise Exception("elo must be one of {}.".format(self.divisions))
         self.elo = elo
-        self.tocheck = {div: [] for div in self.divisions}
+        self.tocheck = {div: [] for div in self.divisions[:-1]}
         self.seedplayer = seedplayer
         self.datafolder = datafolder
         self.checkedplayersfile = "{}/checkedplayers.txt".format(self.datafolder)
@@ -64,7 +72,7 @@ class Elo(Riot):
         self.maxdivsize = maxdivsize
         self.patch = self.patches[patch] if patch is not None else None
         self.season = season
-        self.endtime = endtime
+        self.endtime = self.patches[endtime] if endtime is not None else None
         # print(self.patch)
 
     def getCheckedPlayers(self):
@@ -113,7 +121,7 @@ class Elo(Riot):
                 hightier = div
         return hightier, tiers
 
-    def getData(self, rankedqueues="RANKED_SOLO_5x5"):
+    def getData(self, rankedqueues="TEAM_BUILDER_DRAFT_RANKED_5x5,RANKED_SOLO_5x5"):
         """
         """
         gamenumber = 0
@@ -151,36 +159,41 @@ class Elo(Riot):
                 cycle += 1
             for game in todomatches:
                 if game not in self.checkedgames:
-                    gamenumber += 1
-                    print("Game number {}.".format(gamenumber))
-                    print("Retrieving data for match {}.".format(game))
-                    rawdata = self.getMatch(game).json()
-                    participants = [str(x["player"]["summonerId"]) for x in rawdata["participantIdentities"]]
-                    tiers = self.getSummonerTiers(participants)
-                    g = Game(rawdata, tiers, self.champId, self.spells)
-                    gametier, tiers = self.getAverageTier(g.participants)
-                    print("Adding {} to checkedgamesfile and set.".format(game))
-                    self.checkedgames.add(game)
-                    with open(self.checkedgamesfile, "a") as f:
-                        f.write("{}\n".format(game))
-                    if not os.path.isfile(self.datafiles[gametier]):
-                        with open(self.datafiles[gametier], "w") as f:
-                            writer = csv.DictWriter(f, fieldnames=g.headers)
-                            writer.writeheader()
-                    print("Adding game data to datafile.")
-                    written = False
-                    while not written:
-                        try:
-                            with open(self.datafiles[gametier], "a") as f:
-                                writer = csv.DictWriter(f, fieldnames=g.headers)
-                                writer.writerow(g.data)
-                                written = True
-                        except Exception as e:
-                            print(e)
-                            raw_input("Error writing file. Press enter to continue.")
-                    for p in tiers:
-                        if len(self.tocheck[str(tiers[p]).lower()]) < self.maxdivsize:
-                            self.tocheck[str(tiers[p]).lower()].append(p)
+                    try:
+                        gamenumber += 1
+                        print("Game number {}.".format(gamenumber))
+                        print("Retrieving data for match {}.".format(game))
+                        rawdata = self.getMatch(game).json()
+                        participants = [str(x["player"]["summonerId"]) for x in rawdata["participantIdentities"]]
+                        tiers = self.getSummonerTiers(participants)
+                        g = Game(rawdata, tiers, self.champId, self.spells)
+                        gametier, tiers = self.getAverageTier(g.participants)
+                        print("Adding {} to checkedgamesfile and set.".format(game))
+                        self.checkedgames.add(game)
+                        with open(self.checkedgamesfile, "a") as f:
+                            f.write("{}\n".format(game))
+                        if not os.path.isfile(self.datafiles[gametier]):
+                            with open(self.datafiles[gametier], "w") as f:
+                                writer = csv.DictWriter(f, fieldnames=g.headers, lineterminator="\n")
+                                writer.writeheader()
+                        print("Adding game data to datafile.")
+                        written = False
+                        while not written:
+                            try:
+                                with open(self.datafiles[gametier], "a") as f:
+                                    writer = csv.DictWriter(f, fieldnames=g.headers, lineterminator="\n")
+                                    writer.writerow(g.data)
+                                    written = True
+                            except Exception as e:
+                                print(e)
+                                raw_input("Error writing file. Press enter to continue.")
+                        for p in tiers:
+                            if len(self.tocheck[str(tiers[p]).lower()]) < self.maxdivsize:
+                                self.tocheck[str(tiers[p]).lower()].append(p)
+                    except Exception as e:
+                        print("Error in current game.  Continuing to next.")
+                        print(e)
+                        continue
                 else:
                     print("Skipping {}.  Already in checked games.".format(game))
                     gamenumber += 1
@@ -229,17 +242,33 @@ class Game():
             tp = "t{}:p{}".format(teamid, pid)
             # champion
             # print([("{}:champ{}".format(tp, x+1), "0") for x in range(len(self.champName))])
-            data.update(dict([("{}:champ{}".format(tp, x+1), "0") for x in range(maxchamp)]))
+            # data.update(dict([("{}:champ{}".format(tp, x+1), "0") for x in range(maxchamp)]))
+            champs = {}
+            for i in range(maxchamp + 1):
+                if str(i) in self.champId:
+                    champs["{}:champ{}".format(tp, i)] = "0"
+                    datalist.append("{}:champ{}".format(tp, i))
+            data.update(champs)
             data["{}:champ{}".format(tp, str(champion))] = "1"
-            datalist += ["{}:champ{}".format(tp, x+1) for x in range(maxchamp)]
-            # spell1
-            data.update(dict([("{}:spell1{}".format(tp, x+1), "0") for x in range(maxspell)]))
-            data["{}:spell1{}".format(tp, str(spell1))] = "1"
-            datalist += ["{}:spell1{}".format(tp, x+1) for x in range(maxspell)]
+
+            # spell 1
+            spelldict1 = {}
+            spelldict2 = {}
+            for i in range(maxspell + 1):
+                if i in self.spells:
+                    spelldict1["{}:spell1{}".format(tp, i)] = "0"
+                    datalist.append("{}:spell1{}".format(tp, i))
+            spelldict1["{}:spell1{}".format(tp, str(spell1))] = "1"
+            data.update(spelldict1)
+
             # spell2
-            data.update(dict([("{}:spell2{}".format(tp, x+1), "0") for x in range(maxspell)]))
-            data["{}:spell2{}".format(tp, str(spell2))] = "1"
-            datalist += ["{}:spell2{}".format(tp, x+1) for x in range(maxspell)]
+            for i in range(maxspell + 1):
+                if i in self.spells:
+                    spelldict2["{}:spell2{}".format(tp, i)] = 0
+                    datalist.append("{}:spell2{}".format(tp, i))
+            spelldict2["{}:spell1{}".format(tp, str(spell2))] = "1"
+            data.update(spelldict2)
+
         for team in g["teams"]:
             tid = "t{}".format(team["teamId"])
             win = team["winner"]
@@ -278,7 +307,7 @@ def main():
     # elo = Elo("brianjp93", "test", patch="6.2", endtime=str(int(time.time())*1000))
     # elo = Elo("brianjp93", "test", patch="6.2", endtime=None)
     seedplayer = sys.argv[1]
-    elo = Elo(seedplayer, "season2016", season="SEASON2016")
+    elo = Elo(seedplayer, "patch6.4", season="SEASON2016", patch="6.4")
     elo.getData()
 
 if __name__ == '__main__':

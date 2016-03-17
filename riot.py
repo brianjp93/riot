@@ -2,6 +2,7 @@
 riot.py
 Brian Perrett
 3/31/15
+updated 3/10/16
 messing around with riot's developer api
 """
 from __future__ import division
@@ -64,8 +65,8 @@ class Riot(object):
         if self.key is None:
             self.getKey()
         html = "https://na.api.pvp.net/observer-mode/rest/featured?api_key=" + self.key
-        r = requests.get(html)
         time.sleep(1)
+        r = requests.get(html)
         return r
 
     def getSummonerNames(self):
@@ -188,7 +189,7 @@ class Riot(object):
                         beginIndex=None,
                         endIndex=None,
                         championids=None,
-                        rankedqueues="RANKED_SOLO_5x5",
+                        rankedqueues="RANKED_SOLO_5x5,TEAM_BUILDER_DRAFT_RANKED_5x5",
                         seasons=None,
                         begintime=None,
                         endtime=None):
@@ -204,8 +205,8 @@ class Riot(object):
         if endtime is not None: payload.append(("endTime", endtime))
         payload.append(("rankedQueues", rankedqueues))
         payload.append(("api_key", self.key))
-        r = requests.get(html, params=payload)
         time.sleep(1)
+        r = requests.get(html, params=payload)
         received = False
         if j_son:
             while not received:
@@ -219,8 +220,8 @@ class Riot(object):
                     print("Retrying with error code %s" % r.status_code)
                     print(r.url)
                     print(r.text)
-                    r = requests.get(html, params=payload)
                     time.sleep(1)
+                    r = requests.get(html, params=payload)
             return r
         else:
             return r
@@ -356,7 +357,7 @@ class Riot(object):
                         beginIndex=None,
                         endIndex=None,
                         championids=None,
-                        rankedqueues="RANKED_SOLO_5x5",
+                        rankedqueues="TEAM_BUILDER_DRAFT_RANKED_5x5,RANKED_SOLO_5x5",
                         seasons=None):
         """
         Retrieve data on a summoner.
@@ -445,8 +446,8 @@ class Riot(object):
         received = False
         while not received:
             try:
-                r = requests.get(html, params=params)
                 time.sleep(1)
+                r = requests.get(html, params=params)
                 received = True
             except:
                 print("Retrying match {}.  Error code {}.".format(matchid, r.status_code))
@@ -512,7 +513,8 @@ class Riot(object):
             except:
                 print("Retrying with error code {}.".format(r.status_code))
         data = r.json()["data"]
-        spells = {data[x]["id"]: str(x) for x in data}
+        # print(pprint.pformat(data))
+        spells = {data[x]["id"]: data[x]["name"] for x in data}
         self.spells = spells
         return spells
 
